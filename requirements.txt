@@ -1,0 +1,13 @@
+streamlit
+langchain
+langchain-groq
+langchain-community
+langgraph
+python-dotenv
+pydantic
+plotly
+PyPDF2
+pandas
+crewai[litellm]
+crewai-tools
+litellm

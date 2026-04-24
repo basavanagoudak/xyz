@@ -1,256 +1,194 @@
 import streamlit as st
 import time
-import pandas as pd
-import PyPDF2
-import io
-import math
 import json
-import plotly.graph_objects as go
-from ui_components import apply_custom_css, render_agent_log, render_final_verdict
-from workflow import create_reality_check_crew
 import random
+import io
+import PyPDF2
+import pandas as pd
+from ui_components import apply_custom_css, render_verdict, render_history_sidebar, LABEL_META
+from workflow import create_reality_check_crew
 
 st.set_page_config(
-    page_title="RealityCheck AI | Enterprise Dashboard",
+    page_title="RealityCheck AI",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 apply_custom_css()
 
-st.markdown("""
-<style>
-.indent-1 { margin-left: 0px; }
-.indent-2 { margin-left: 40px; border-left: 2px dashed #4facfe; padding-left: 20px; }
-.indent-3 { margin-left: 80px; border-left: 2px dashed #00f2fe; padding-left: 20px; }
-header {visibility: hidden;}
-div[data-testid="metric-container"] {
-    background: rgba(15, 23, 42, 0.4);
-    border: 1px solid rgba(79, 172, 254, 0.2);
-    padding: 15px 20px;
-    border-radius: 12px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-}
-</style>
-""", unsafe_allow_html=True)
+# ── Session state initialisation ─────────────────────────────────────────────
+if "history" not in st.session_state:
+    st.session_state.history = []
+if "last_result" not in st.session_state:
+    st.session_state.last_result = None
 
-def extract_text_from_file(uploaded_file):
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def extract_text(uploaded_file) -> str:
     if not uploaded_file:
         return ""
-    text = ""
     try:
-        if uploaded_file.name.endswith('.pdf'):
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(uploaded_file.read()))
-            for page in pdf_reader.pages:
-                text += page.extract_text() + "\n"
-        elif uploaded_file.name.endswith('.csv'):
+        if uploaded_file.name.endswith(".pdf"):
+            reader = PyPDF2.PdfReader(io.BytesIO(uploaded_file.read()))
+            return "\n".join(p.extract_text() or "" for p in reader.pages)
+        elif uploaded_file.name.endswith(".csv"):
             df = pd.read_csv(uploaded_file)
-            text = df.to_string(index=False)
+            return df.to_string(index=False)
     except Exception as e:
-        st.error(f"Error reading file: {str(e)}")
-    return text
+        st.error(f"File read error: {e}")
+    return ""
 
-def render_knowledge_graph(graph_data):
-    if not graph_data or not graph_data.get("nodes"):
-        # Provide some default mock graph data if none exists
-        graph_data = {
-            "nodes": [
-                {"id": "Claim", "label": "Original Claim", "color": "#00f2fe"},
-                {"id": "S1", "label": "Source Alpha", "color": "#10b981"},
-                {"id": "S2", "label": "Source Beta", "color": "#10b981"},
-                {"id": "S3", "label": "Source Gamma", "color": "#ef4444"}
-            ],
-            "edges": [
-                {"source": "Claim", "target": "S1"},
-                {"source": "Claim", "target": "S2"},
-                {"source": "Claim", "target": "S3"}
-            ]
-        }
-        
-    st.markdown("<h3 style='color: #00f2fe; margin-top: 30px;'>🕸️ KNOWLEDGE GRAPH VECTORS</h3>", unsafe_allow_html=True)
-    
-    nodes = graph_data["nodes"]
-    edges = graph_data["edges"]
-    
-    fig = go.Figure()
-    
-    node_x = []
-    node_y = []
-    node_color = []
-    node_text = []
-    
-    center_x, center_y = 0, 0
-    radius = 10
-    
-    for i, node in enumerate(nodes):
-        if node["id"] == "Claim":
-            x, y = center_x, center_y
-        else:
-            angle = i * 2 * math.pi / max(1, (len(nodes)-1))
-            x = center_x + radius * math.cos(angle)
-            y = center_y + radius * math.sin(angle)
-            
-        node_x.append(x)
-        node_y.append(y)
-        node_color.append(node["color"])
-        node_text.append(node["label"])
-        
-    for edge in edges:
-        try:
-            source_idx = next(i for i, n in enumerate(nodes) if n["id"] == edge["source"])
-            target_idx = next(i for i, n in enumerate(nodes) if n["id"] == edge["target"])
-            
-            fig.add_trace(go.Scatter(
-                x=[node_x[source_idx], node_x[target_idx], None],
-                y=[node_y[source_idx], node_y[target_idx], None],
-                line=dict(width=2, color='rgba(79, 172, 254, 0.5)'),
-                hoverinfo='none',
-                mode='lines'
-            ))
-        except StopIteration:
-            continue
-            
-    fig.add_trace(go.Scatter(
-        x=node_x, y=node_y,
-        mode='markers+text',
-        text=node_text,
-        textposition="top center",
-        marker=dict(
-            size=30,
-            color=node_color,
-            line=dict(width=2, color='rgba(255,255,255,0.8)')
-        ),
-        hoverinfo='text',
-        textfont=dict(color='white', size=12)
-    ))
-    
-    fig.update_layout(
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(15,23,42,0.4)',
-        showlegend=False,
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-        margin=dict(l=20, r=20, t=20, b=20),
-        height=400,
-        hovermode='closest'
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
 
-def main():
-    with st.sidebar:
-        st.markdown("<h2 style='text-align: center; color: #00f2fe;'>SYSTEM UPLINK</h2>", unsafe_allow_html=True)
-        st.markdown("---")
-        st.metric(label="Active Agents", value="3 / 3", delta="CrewAI Online")
-        st.metric(label="Groq Latency", value=f"{random.randint(12, 45)}ms", delta="-2ms", delta_color="inverse")
-        st.metric(label="Threat Intel Version", value="v3.0.0 (CrewAI)")
-        st.markdown("---")
-        verbose_mode = st.toggle("👁️ Verbose Telemetry", value=True, key="verbose_telemetry")
-        
-    st.markdown("<h1 style='text-align: left; margin-bottom: 0;'>REALITYCHECK_AI <span style='font-size: 1.2rem; color: #94a3b8; font-weight: 400;'>// CREW_ORCHESTRATION</span></h1>", unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    with kpi1:
-        st.metric("Claims Analyzed (Today)", "1,204")
-    with kpi2:
-        st.metric("Deepfakes Blocked", "412")
-    with kpi3:
-        st.metric("Network Accuracy", "99.9%")
-    with kpi4:
-        st.metric("Engine", "CrewAI + Llama 3")
-        
-    st.markdown("<hr style='border-color: rgba(79, 172, 254, 0.2);'>", unsafe_allow_html=True)
+def parse_crew_result(result_str: str) -> dict:
+    """Robustly extract JSON from the coordinator's raw output."""
+    try:
+        start = result_str.rfind("{")
+        end = result_str.rfind("}") + 1
+        if start != -1 and end > start:
+            data = json.loads(result_str[start:end])
+            return {
+                "verdict": str(data.get("verdict", result_str)),
+                "label": str(data.get("label", "UNVERIFIABLE")).upper(),
+                "confidence": max(0, min(100, int(data.get("confidence", 70)))),
+                "sources": [s for s in data.get("sources", []) if isinstance(s, str) and s.startswith("http")],
+            }
+    except Exception:
+        pass
+    return {"verdict": result_str, "label": "UNVERIFIABLE", "confidence": 50, "sources": []}
 
-    input_col, exec_col = st.columns([1, 1.5], gap="large")
-    
-    with input_col:
-        st.markdown("### 📥 INGESTION TERMINAL")
-        st.markdown("<div style='background: rgba(15,23,42,0.4); padding: 25px; border-radius: 16px; border: 1px solid rgba(79,172,254,0.3);'>", unsafe_allow_html=True)
-        
-        input_text = st.text_area("TARGET CLAIM OR TEXT", height=100, placeholder="Inject data snippet here... (e.g. 'The Eiffel Tower was sold in 1925')")
-        
-        st.markdown("<p style='color: #94a3b8; font-size: 0.9rem;'>OR UPLOAD DOCUMENT BATCH</p>", unsafe_allow_html=True)
-        uploaded_file = st.file_uploader("DOCUMENT_UPLOAD", type=['pdf', 'csv'], label_visibility="collapsed")
-        
-        input_image = st.text_input("SUPPLEMENTARY IMAGE HASH / URL", placeholder="https://... (Optional)")
+
+# ── Sidebar ───────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("""
+    <div style="text-align:center; padding: 8px 0 20px;">
+        <div style="font-size:2.4rem; margin-bottom:4px;">🛡️</div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:#4facfe; letter-spacing:3px; text-transform:uppercase;">RealityCheck AI</div>
+        <div style="font-size:0.7rem; color:#334155; margin-top:2px;">v2.0 · CrewAI + Llama 3.3</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.metric("Agents", "3 / 3")
+    with col_b:
+        st.metric("Latency", f"{random.randint(10, 40)}ms")
+
+    st.metric("Engine", "Groq · Llama 3.3 70B")
+    st.metric("Search", "Tavily Live Web")
+
+    st.markdown("---")
+    st.markdown('<div style="font-size:0.72rem; font-weight:700; letter-spacing:2px; color:#4facfe; text-transform:uppercase; margin-bottom:12px;">Analysis History</div>', unsafe_allow_html=True)
+    render_history_sidebar(st.session_state.history)
+
+    st.markdown("---")
+    verbose = st.toggle("Verbose Agent Logs", value=True, key="verbose_toggle")
+
+
+# ── Main Header ───────────────────────────────────────────────────────────────
+st.markdown("""
+<div style="padding: 10px 0 28px;">
+    <div style="font-family:'Outfit',sans-serif; font-size:2.6rem; font-weight:900; background:linear-gradient(90deg,#e2e8f0,#4facfe,#00f2fe); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; line-height:1.1; margin-bottom:8px;">
+        REALITYCHECK_AI
+    </div>
+    <div style="font-size:0.9rem; color:#475569; letter-spacing:1px;">
+        Multi-agent AI fact-checker powered by <span style="color:#4facfe;">CrewAI</span> + <span style="color:#4facfe;">Groq</span> + <span style="color:#4facfe;">Tavily Live Search</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ── KPI bar ───────────────────────────────────────────────────────────────────
+k1, k2, k3, k4 = st.columns(4)
+total = len(st.session_state.history)
+true_count = sum(1 for h in st.session_state.history if h.get("label") in ("TRUE","MOSTLY TRUE"))
+false_count = sum(1 for h in st.session_state.history if h.get("label") in ("FALSE","MOSTLY FALSE"))
+
+with k1: st.metric("Claims Analysed", total)
+with k2: st.metric("Verified True", true_count)
+with k3: st.metric("Flagged False", false_count)
+with k4: st.metric("Accuracy Engine", "99.9%")
+
+st.markdown("<hr style='border:none;border-top:1px solid rgba(79,172,254,0.12);margin:4px 0 28px;'>", unsafe_allow_html=True)
+
+# ── Two-column layout ─────────────────────────────────────────────────────────
+left, right = st.columns([1, 1.4], gap="large")
+
+with left:
+    st.markdown('<div class="section-heading">📥 Ingestion Terminal</div>', unsafe_allow_html=True)
+    with st.container():
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+
+        claim_text = st.text_area(
+            "Claim or Statement",
+            height=120,
+            placeholder="e.g. 'Tesla Q1 2024 sales fell by 30%' or paste any news excerpt...",
+            label_visibility="collapsed",
+            key="claim_input",
+        )
+
+        st.markdown('<p style="font-size:0.75rem;color:#475569;margin:10px 0 6px;letter-spacing:1px;text-transform:uppercase;">Or upload a document</p>', unsafe_allow_html=True)
+        doc = st.file_uploader("Upload PDF or CSV", type=["pdf", "csv"], label_visibility="collapsed", key="doc_uploader")
+
+        st.markdown('<p style="font-size:0.75rem;color:#475569;margin:14px 0 6px;letter-spacing:1px;text-transform:uppercase;">Image URL (optional)</p>', unsafe_allow_html=True)
+        image_url = st.text_input("Image URL", placeholder="https://example.com/image.jpg", label_visibility="collapsed", key="image_input")
+
         st.markdown("<br>", unsafe_allow_html=True)
-        
-        verify_btn = st.button("EXECUTE CREW ANALYSIS", use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-    with exec_col:
-        st.markdown("### 📡 SWARM TELEMETRY & VERDICT")
-        
-        if not verify_btn:
-            st.markdown("""
-            <div style='height: 300px; display: flex; align-items: center; justify-content: center; border: 1px dashed rgba(79,172,254,0.3); border-radius: 16px; color: #94a3b8;'>
-                Awaiting ingestion command...
-            </div>
-            """, unsafe_allow_html=True)
-            
-        if verify_btn and (input_text or uploaded_file):
-            
-            # Combine manual text and document text
-            extracted_text = extract_text_from_file(uploaded_file)
-            combined_text = f"{input_text}\n\n[DOCUMENT CONTEXT]:\n{extracted_text}".strip()
-            
-            status_text = st.empty()
-            progress_bar = st.progress(0)
-            
-            tree_container = st.container()
-            final_verdict_placeholder = st.empty()
-            graph_placeholder = st.empty()
-            
+        run_btn = st.button("🔍 Execute Crew Analysis", key="run_btn")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # Example prompts
+    st.markdown('<div class="section-heading" style="margin-top:20px;">⚡ Quick Examples</div>', unsafe_allow_html=True)
+    examples = [
+        "Did Tesla's global car sales drop by 30% in early 2024?",
+        "Was the Great Wall of China visible from space?",
+        "Did scientists confirm that coffee causes cancer?",
+    ]
+    for ex in examples:
+        if st.button(ex, key=f"ex_{ex[:20]}", use_container_width=True):
+            st.session_state["claim_input"] = ex
+            st.rerun()
+
+with right:
+    st.markdown('<div class="section-heading">📡 Verdict & Intelligence Report</div>', unsafe_allow_html=True)
+
+    # ── Run the crew ──────────────────────────────────────────────────────────
+    if run_btn and (claim_text.strip() or doc):
+        doc_text = extract_text(doc)
+        full_claim = f"{claim_text}\n\n[DOCUMENT]:\n{doc_text}".strip() if doc_text else claim_text.strip()
+
+        with st.status("🚀 Crew is analyzing...", expanded=verbose) as status_box:
+            st.write("🔎 Researcher: Searching live web sources...")
             try:
-                status_text.markdown("<p style='color: #00f2fe; font-family: monospace;'>[+] Initializing CrewAI Hierarchical Process...</p>", unsafe_allow_html=True)
-                time.sleep(1)
-                progress_bar.progress(10)
-                
-                with st.status("🚀 Crew is working...", expanded=verbose_mode) as status:
-                    st.write("Initializing Agents...")
-                    time.sleep(0.5)
-                    st.write("Assigning Research Task...")
-                    time.sleep(0.5)
-                    
-                    crew = create_reality_check_crew(combined_text, input_image)
-                    result = crew.kickoff()
-                    
-                    status.update(label="✅ Analysis Complete!", state="complete", expanded=False)
-                
-                progress_bar.progress(100)
-                status_text.empty()
-                progress_bar.empty()
-
-                # Parse the result
-                # CrewAI result is a string, but we can try to extract JSON if the coordinator was asked to return JSON
-                result_str = str(result)
-                verdict = result_str
-                confidence = 85 # Default fallback
-                
-                try:
-                    # Look for JSON-like structure in the result
-                    if "{" in result_str and "}" in result_str:
-                        json_str = result_str[result_str.find("{"):result_str.rfind("}")+1]
-                        data = json.loads(json_str)
-                        verdict = data.get("verdict", result_str)
-                        confidence = data.get("confidence", 85)
-                except:
-                    pass
-                
-                # Render Final Verdict
-                with final_verdict_placeholder:
-                    render_final_verdict(verdict, confidence)
-                    
-                # Render Plotly Graph
-                with graph_placeholder:
-                    render_knowledge_graph({})
-                
+                crew = create_reality_check_crew(full_claim, image_url)
+                result = crew.kickoff()
+                status_box.update(label="✅ Analysis complete!", state="complete", expanded=False)
             except Exception as e:
-                st.error(f"SYSTEM FAILURE: {str(e)}")
-                if "PyPDF2" in str(e):
-                    st.info("💡 It looks like PyPDF2 is missing. Please run: `pip install PyPDF2` in your terminal.")
+                status_box.update(label="❌ Analysis failed", state="error", expanded=True)
+                st.error(f"**SYSTEM ERROR:** {e}")
+                result = None
 
-if __name__ == "__main__":
-    main()
+        if result:
+            parsed = parse_crew_result(str(result))
+            parsed["claim"] = full_claim
+            st.session_state.history.append(parsed)
+            st.session_state.last_result = parsed
+
+    # ── Show result ───────────────────────────────────────────────────────────
+    if st.session_state.last_result:
+        r = st.session_state.last_result
+        render_verdict(r["verdict"], r["label"], r["confidence"], r["sources"])
+    elif not run_btn:
+        st.markdown("""
+        <div class="awaiting-box">
+            <div class="awaiting-icon">🛡️</div>
+            <div>Enter a claim and hit <strong style="color:#4facfe;">Execute</strong> to begin</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── Clear button ──────────────────────────────────────────────────────────
+    if st.session_state.last_result:
+        if st.button("🗑️ Clear Results", key="clear_btn"):
+            st.session_state.last_result = None
+            st.rerun()

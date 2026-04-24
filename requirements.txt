@@ -11,3 +11,4 @@ pandas
 crewai[litellm]
 crewai-tools
 litellm
+tavily-python

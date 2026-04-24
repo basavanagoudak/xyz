@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No claim provided" }, { status: 400 });
   }
 
-  // ── 1. Live web search ──────────────────────────────────────────────────
+  // ── 1. Live web search ──────────
   let searchContext = "";
   const sources: { title: string; url: string; snippet: string }[] = [];
   try {

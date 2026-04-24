@@ -1,6 +1,24 @@
+# dependencies
+/node_modules
+
+# build output
+/.next/
+/out/
+
+# environment files — NEVER commit these
 .env
-__pycache__/
-.venv/
-*.py[cod]
-*$py.class
-.ipynb_checkpoints/
+.env.local
+.env*.local
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+
+# editor
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db

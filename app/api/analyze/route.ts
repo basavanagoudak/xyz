@@ -4,10 +4,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const maxDuration = 60; // Vercel Pro max; free tier will cap at 10s
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const tv = tavily({ apiKey: process.env.TAVILY_API_KEY! });
-
 export async function POST(req: NextRequest) {
+  // Move client initialization inside the handler to prevent build-time crashes if keys are missing
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  const tv = tavily({ apiKey: process.env.TAVILY_API_KEY! });
+
   const { claim, imageUrl } = await req.json();
 
   if (!claim?.trim()) {

@@ -38,4 +38,3 @@ coordinator = Agent(
     verbose=True,
     allow_delegation=True
 )
-    main()

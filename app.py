@@ -146,7 +146,7 @@ def main():
         st.metric(label="Groq Latency", value=f"{random.randint(12, 45)}ms", delta="-2ms", delta_color="inverse")
         st.metric(label="Threat Intel Version", value="v3.0.0 (CrewAI)")
         st.markdown("---")
-        verbose_mode = st.toggle("👁️ Verbose Telemetry", value=True)
+        verbose_mode = st.toggle("👁️ Verbose Telemetry", value=True, key="verbose_telemetry")
         
     st.markdown("<h1 style='text-align: left; margin-bottom: 0;'>REALITYCHECK_AI <span style='font-size: 1.2rem; color: #94a3b8; font-weight: 400;'>// CREW_ORCHESTRATION</span></h1>", unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
@@ -222,7 +222,7 @@ def main():
                 progress_bar.progress(100)
                 status_text.empty()
                 progress_bar.empty()
-                
+
                 # Parse the result
                 # CrewAI result is a string, but we can try to extract JSON if the coordinator was asked to return JSON
                 result_str = str(result)
@@ -251,9 +251,6 @@ def main():
                 st.error(f"SYSTEM FAILURE: {str(e)}")
                 if "PyPDF2" in str(e):
                     st.info("💡 It looks like PyPDF2 is missing. Please run: `pip install PyPDF2` in your terminal.")
-
-if __name__ == "__main__":
-    main()
 
 if __name__ == "__main__":
     main()
